@@ -1,6 +1,6 @@
 version: '3.8'
 services:
-  mariadb:
+  mysql:
     networks:
       - ci
     environment:
@@ -18,14 +18,14 @@ services:
     environment:
       AUTORUN_ENABLED: false
     depends_on:
-      - mariadb
+      - mysql
 
   node:
     image: node:20
     volumes:
       - .:/usr/src/app/
     working_dir: /usr/src/app/
-    networks: 
+    networks:
       - ci
 
   mailpit:

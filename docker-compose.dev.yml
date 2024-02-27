@@ -4,7 +4,7 @@ services:
     networks:
       development:
         aliases:
-          - laravel.dev.test
+          - demo.dev.test
     ports:
       - "80:80"
       - "443:443"
@@ -19,45 +19,53 @@ services:
     build:
       target: development
       args:
-        USER_ID: ${SPIN_USER_ID}
-        GROUP_ID: ${SPIN_GROUP_ID}
+        USER_ID: ${SPIN_USER_ID:-1000}
+        GROUP_ID: ${SPIN_GROUP_ID:-1000}
+    environment:
+      SSL_MODE: "mixed"
     volumes:
       - .:/var/www/html/
     networks:
       - development
     depends_on:
       - traefik
-      - mariadb
+      - mysql
+      - meilisearch
+      - redis
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.laravel.rule=HostRegexp(`laravel.dev.test`)"
+      - "traefik.http.routers.laravel.rule=HostRegexp(`demo.dev.test`)"
       - "traefik.http.routers.laravel.entrypoints=websecure"
       - "traefik.http.routers.laravel.tls=true"
       - "traefik.http.services.laravel.loadbalancer.server.port=80"
       - "traefik.http.services.laravel.loadbalancer.server.scheme=http"
-  
+
   node:
     image: node:20
     volumes:
       - .:/usr/src/app/
     working_dir: /usr/src/app/
-    networks: 
+    networks:
       - development
 
-  mariadb:
+  mysql:
+    env_file:
+      - ./.env
     networks:
       - development
     volumes:
-      - ./.infrastructure/volume_data/mariadb/database_data/:/var/lib/mysql
+      - ./.infrastructure/volume_data/mysql/database_data/:/var/lib/mysql
     environment:
-        MYSQL_ROOT_PASSWORD: "rootpassword"
-        MYSQL_DATABASE: "laravel"
-        MYSQL_USER: "mysqluser"
-        MYSQL_PASSWORD: "mysqlpassword"
+      MYSQL_ALLOW_EMPTY_PASSWORD: yes
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: ${DB_DATABASE:-laravel}
+      MYSQL_USER: ${DB_USERNAME:-mysqluser}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-mysqlpassword}
     ports:
       - "3306:3306"
 
   mailpit:
+      hostname: mailpit
       image: axllent/mailpit
       networks:
         - development
@@ -70,6 +78,57 @@ services:
         - "traefik.http.services.mailpit.loadbalancer.server.scheme=http"
       depends_on:
         - traefik
+
+  meilisearch:
+    env_file:
+      - ./.env
+    environment:
+      MEILI_MASTER_KEY: ${MEILISEARCH_KEY:-masterKey}
+    volumes:
+      - ./.infrastructure/volume_data/meilisearch/meilisearch_data:/meili_data
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.mailpit.rule=Host(`meilisearch.dev.test`)"
+      - "traefik.http.routers.mailpit.entrypoints=websecure"
+      - "traefik.http.routers.mailpit.tls=true"
+      - "traefik.http.services.mailpit.loadbalancer.server.port=7700"
+      - "traefik.http.services.mailpit.loadbalancer.server.scheme=http"
+    depends_on:
+      - traefik
+    networks:
+      - development
+
+  redis:
+    env_file:
+      - ./.env
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-mysupersecretredispassword}
+    volumes:
+      - ./.infrastructure/volume_data/redis/data:/data
+    networks:
+      - development
+
+  minio:
+    hostname: minio
+    image: minio/minio:latest
+    env_file:
+      - ./.env
+    environment:
+      - MINIO_ROOT_USER=${AWS_ACCESS_KEY_ID:-root}
+      - MINIO_ROOT_PASSWORD=${AWS_SECRET_ACCESS_KEY:-root}
+    command: minio server /data --console-address ":8900" --address 0.0.0.0:9000
+    volumes:
+      - ./.infrastructure/volume_data/minio/data:/data
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.mailpit.rule=Host(`minio.dev.test`)"
+      - "traefik.http.routers.mailpit.entrypoints=websecure"
+      - "traefik.http.routers.mailpit.tls=true"
+      - "traefik.http.services.mailpit.loadbalancer.server.port=9000"
+      - "traefik.http.services.mailpit.loadbalancer.server.scheme=http"
+    depends_on:
+      - traefik
+    networks:
+      - development
 
 networks:
   development:
